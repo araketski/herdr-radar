@@ -146,7 +146,7 @@ test('orphan sweeping owns activity_line but leaves producer activity alone', as
 
 test('only the dedicated pi layout renders activity_line between the main row and gap', (t) => {
   const readdir = fs.readdirSync;
-  const vendors = Object.keys(palette.brand).filter((vendor) => vendor !== 'other');
+  const vendors = [...Object.keys(palette.brand).filter((vendor) => vendor !== 'other' && vendor !== 'pi'), 'pi'];
   t.mock.method(fs, 'readdirSync', (directory, ...args) =>
     String(directory).endsWith(path.join('agent-detection', 'remote'))
       ? vendors.map((vendor) => `${vendor}.toml`)
@@ -156,6 +156,11 @@ test('only the dedicated pi layout renders activity_line between the main row an
     const block = managed.sidebarBlock(variant);
     const rows = block.split('\n').filter((line) => /^(rows|[a-z_]+) = \[.*\$title_working/.test(line));
     assert.equal(rows.length, vendors.length + 1);
+    assert.equal(
+      rows.filter((row) => row.startsWith('pi = ')).length,
+      1,
+      'Pi needs an explicit override despite having no brand hue',
+    );
     for (const row of rows) {
       assert.equal(row.includes('"$activity"'), false);
       if (row.startsWith('pi = ')) {
