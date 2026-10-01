@@ -135,7 +135,8 @@ billing
 
 One row per agent: logo, title, colour by state, motion and marks in front of the title.
 Pi sessions that publish a custom `$activity` token get an optional second row: Radar adds the
-workspace/worktree indentation and renders it as `$activity_line` in a subdued colour.
+workspace/worktree indentation plus the logo/separator offset, aligning it below the title,
+and renders it as `$activity_line` in a warm muted colour.
 Empty or missing activity adds no row. The producer owns `$activity`; Radar owns and clears
 `$activity_line`. Updates are picked up by the existing two-second heartbeat.
 

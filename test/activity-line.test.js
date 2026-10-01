@@ -11,7 +11,8 @@ const managed = require('../lib/managed-config');
 const palette = require('../lib/palette');
 const { Frame } = require('../lib/frame');
 
-const entry = { pane: 'w:p1', workspace: 'w', tab: 't', name: 'codex', title: 'Task' };
+const entry = { pane: 'w:p1', workspace: 'w', tab: 't', name: 'pi', title: 'Task' };
+const activityPrefix = (indent, offset) => `\u200b${' '.repeat(indent.replace(/\u200b/g, '').length + offset)}`;
 
 function captureReports(t) {
   const reports = [];
@@ -24,7 +25,7 @@ function captureReports(t) {
   return reports;
 }
 
-async function publish(frame, activity, indent = state.INDENT, display = 'idle') {
+async function publish(frame, activity, indent = state.INDENT, display = 'idle', activityHanging = 2) {
   const jobs = [];
   frame.paneJobs(
     { ...entry, activity },
@@ -33,6 +34,7 @@ async function publish(frame, activity, indent = state.INDENT, display = 'idle')
       tabs: new Map(),
       keys: { minuteKey: () => '000000000001', wsKeys: new Map(), tabKeys: new Map() },
       indent,
+      activityHanging,
       spinStep: 0,
     },
     0,
@@ -58,17 +60,43 @@ test('snapshot treats absent or non-string activity as empty', async (t) => {
   }
 });
 
-test('activity uses Radar’s calculated indent at every depth, with or without a split corner', () => {
+test('activity aligns under the title past the logo, corner and separators at every depth', () => {
   for (const indent of state.INDENTS) {
-    for (const corner of ['', '└']) {
-      const line = state.composeLine(entry, 'idle', '', indent, 0, corner);
-      assert.equal(line.activityPrefix, indent);
-      const tokens = state.stateTokens('idle', line, entry.title, 'Running integration tests');
-      assert.equal(tokens.activity_line, indent + 'Running integration tests');
-      assert.equal('activity' in tokens, false);
-      assert.equal(state.stateTokens('idle', line, entry.title, '').activity_line, null);
-      assert.equal(state.stateTokens('idle', line, entry.title).activity_line, null);
+    for (const corner of ['', '└─ ']) {
+      for (const hanging of [0, 2]) {
+        const line = state.composeLine(entry, 'idle', '', indent, 0, corner, hanging);
+        const prefix = activityPrefix(indent, 4 + (corner ? 6 : 0) - hanging);
+        assert.equal(line.activityPrefix, prefix);
+        const tokens = state.stateTokens('idle', line, entry.title, 'Running integration tests');
+        assert.equal(tokens.activity_line, prefix + 'Running integration tests');
+        assert.equal('activity' in tokens, false);
+        assert.equal(state.stateTokens('idle', line, entry.title, '').activity_line, null);
+        assert.equal(state.stateTokens('idle', line, entry.title).activity_line, null);
+      }
     }
+  }
+});
+
+test('a pane without a logo does not reserve logo or separator columns', () => {
+  const unbranded = { ...entry, name: 'unknown-vendor' };
+  const line = state.composeLine(unbranded, 'idle', '', state.CHILD_INDENT, 0, '', 2);
+  assert.equal(line.activityPrefix, activityPrefix(state.INDENT, 0));
+});
+
+test('font and text Pi logos use the same activity alignment', (t) => {
+  const config = require('../lib/config');
+  const previous = config.variant;
+  t.after(() => {
+    config.variant = previous;
+  });
+  for (const variant of ['font', 'text']) {
+    config.variant = variant;
+    const line = state.composeLine(entry, 'idle', '', '', 0, '', 2);
+    assert.equal(
+      line.activityPrefix,
+      '\u200b  ',
+      'a first-row logo plus separator needs two extra columns after Herdr’s hanging indent',
+    );
   }
 });
 
@@ -76,13 +104,13 @@ test('an activity-only change is published, unchanged activity is skipped, and r
   const reports = captureReports(t);
   const frame = new Frame('test');
   await publish(frame, 'Running tests');
-  assert.equal(frame.lastTokens.get(entry.pane).activity_line, state.INDENT + 'Running tests');
+  assert.equal(frame.lastTokens.get(entry.pane).activity_line, activityPrefix(state.INDENT, 2) + 'Running tests');
 
   reports.length = 0;
   await publish(frame, 'Checking results');
   assert.deepEqual(
     reports.map((report) => report.tokens),
-    [{ activity_line: state.INDENT + 'Checking results' }],
+    [{ activity_line: activityPrefix(state.INDENT, 2) + 'Checking results' }],
   );
 
   reports.length = 0;
@@ -104,7 +132,19 @@ test('activity follows indentation changes even when its text stays the same', a
   await publish(frame, 'Running tests', state.CHILD_INDENT);
   assert.equal(
     reports.find((report) => 'activity_line' in report.tokens).tokens.activity_line,
-    state.CHILD_INDENT + 'Running tests',
+    activityPrefix(state.CHILD_INDENT, 2) + 'Running tests',
+  );
+});
+
+test('activity is realigned when a pane gains a header without changing its title or indent', async (t) => {
+  const reports = captureReports(t);
+  const frame = new Frame('test');
+  await publish(frame, 'Running tests', '', 'idle', 2);
+  reports.length = 0;
+  await publish(frame, 'Running tests', '', 'idle', 0);
+  assert.deepEqual(
+    reports.map((report) => report.tokens),
+    [{ activity_line: '\u200b    Running tests' }],
   );
 });
 
@@ -165,7 +205,7 @@ test('only the dedicated pi layout renders activity_line between the main row an
       assert.equal(row.includes('"$activity"'), false);
       if (row.startsWith('pi = ')) {
         assert.equal((row.match(/\$activity_line/g) ?? []).length, 1);
-        assert.ok(row.includes(`[{ token = "$activity_line", fg = "${palette.stateFor(variant).idleStale}"`));
+        assert.ok(row.includes(`[{ token = "$activity_line", fg = "${palette.stateFor(variant).idleNormal}"`));
         assert.ok(row.indexOf('$title_unknown') < row.indexOf('$activity_line'));
         assert.ok(row.indexOf('$activity_line') < row.indexOf('$gap'));
         const withoutActivity = row.replace(/, \[\{ token = "\$activity_line"[^}]*\}\]/, '');
